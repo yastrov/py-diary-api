@@ -5,6 +5,7 @@ API for http://diary.ru web service.
 """
 import hashlib
 import requests
+import json
 
 class Diary_API:
     '''
@@ -22,6 +23,7 @@ class Diary_API:
         self.sid = None
         self._appkey = appkey or ok
         self._key = key or pk
+        self._index = 0
 
     def password_crypt(self, password):
         s = '{key}{password}'.format(key=self._key,
@@ -83,6 +85,13 @@ class Diary_API:
                                 params=params,
                                 data=data)
 
+    def _log_json(self, js_data, method):
+        with open('{method}_{index}.json'\
+                    .format(index=self._index, method=method),\
+                 'w') as fp:
+            json.dump(js,fp)
+        self._index += 1
+
     ### USER region
     def user_get(self, user_id=None):
         para = {'method': 'user.get',
@@ -117,6 +126,7 @@ class Diary_API:
         '''
         type_ must be one of: ['diary', 'favorites', 'quotes',
         'notepad', 'draft', 'last', 'by_id']
+        Return num, generator
         '''
         if ids:
             if not isinstance(ids, (list, tuple)):
@@ -137,6 +147,8 @@ class Diary_API:
             self.error = js['error']
             raise Exception(self.error)
         else:
+            if __debug__:
+                self._log_json(js, 'post_get')
             return ((post_id, data)
                     for post_id, data
                     in js['posts'].items())
@@ -161,10 +173,26 @@ class Diary_API:
             self.error = js['error']
             raise Exception(self.error)
         else:
+            if __debug__:
+                self._log_json(js, 'comment_get')
             return ((comment_id, comment_data)
                     for comment_id, comment_data
-                    in js['comments'])
+                    in js['comments'].items())
+
     ## END COMMENT region
+    def post_and_comments(self, type_='diary', juser_id=None,
+                        shortname=None, from_=0, src=1, ids=None):
+        for post_id, data in self.post_get(type_, juser_id,
+                                shortname, from_, src, ids):
+            comment_count = int(data['comments_count_data'])
+            c_c = 0
+            comments = []
+            while c_c < comment_count:
+                for comment_id, comment_data in \
+                            self.comment_get(post_id, from_=c_c):
+                    c_c += 1
+                    comments.append(comment_data)
+            yield post_id, data, comments
 
     ## UMAIL region
     def umail_get_folders(self):
@@ -187,6 +215,8 @@ class Diary_API:
             if not '3' in folders2:
                 folders2['3'] = {'name': 'Удалённые',
                                     'count':'-1'}
+            if __debug__:
+                self._log_json(js, 'umail_get_folders')
             for folder_id, data in folders2.items():
                 yield folder_id, data['name'], data['count']
 
@@ -207,16 +237,18 @@ class Diary_API:
             self.error = js['error']
             raise Exception(self.error)
         else:
+            if __debug__:
+                self._log_json(js, 'umail_get')
             return int(js['count']), js['umail']
 
-    def umail_get_iter(self, folder_id=None, unread=0,
-                    from_=0, limit=20, umail_id=None):
-        count, umail_dct = self.umail_get(folder_id, unread,
-                                    from_, limit, umail_id)
-        return ((umail_id, umail_unit_dct)
-                for umail_id, umail_unit_dct
-                in umail_dct.items())
-    
+    def umail_get_iter(self, folder_id=None, unread=0):
+        from_ = 0
+        count = 1
+        while from_ < count:
+            count, umail_dct = self.umail_get(folder_id, unread,
+                                        from_, limit, umail_id)
+            for umail_id, umail_unit_dct in umail_dct.items():
+                yield umail_id, umail_unit_dct    
 
     def umail_send(self, user_id, username, title,
                     message, save_copy=True, need_receipt=False):
@@ -264,3 +296,6 @@ if __name__ == '__main__':
         #print(list(d_api.umail_get_iter())[:2])
         print(list(d_api.post_get(type_='by_id', ids=['id as int',]))[:2])
         print(list(d_api.comment_get('id as int'))[:2])
+        for post_id, post_data, comments in d_api\
+                        .post_and_comments(type_='by_id', ids=['201289904',]):
+            print(post_id)
