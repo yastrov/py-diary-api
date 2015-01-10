@@ -89,7 +89,7 @@ class Diary_API:
         with open('{method}_{index}.json'\
                     .format(index=self._index, method=method),\
                  'w') as fp:
-            json.dump(js,fp)
+            json.dump(js_data,fp)
         self._index += 1
 
     ### USER region
@@ -149,9 +149,11 @@ class Diary_API:
         else:
             if __debug__:
                 self._log_json(js, 'post_get')
+            if len(js.get('posts', {}).items()) == 0:
+                return (({},{}))
             return ((post_id, data)
                     for post_id, data
-                    in js['posts'].items())
+                    in js.get('posts', {}).items())
 
     def post_delete(self, juser_id, post_id):
         js = self._get(params={'method':'post.delete',
@@ -175,9 +177,11 @@ class Diary_API:
         else:
             if __debug__:
                 self._log_json(js, 'comment_get')
+            if len(js.get('comments', {}).items()) == 0:
+                return (({},{}),)
             return ((comment_id, comment_data)
                     for comment_id, comment_data
-                    in js['comments'].items())
+                    in js.get('comments', {}).items())
 
     def journal_get(self, userid=None, shortname=None, fields=None, unset=None):
         para = {'method': 'journal.get',}
@@ -185,7 +189,9 @@ class Diary_API:
         if shortname: para['shortname'] = shortname
         if fields: para['fields'] = fields
         if unset: para['unset'] = unset
-        js = self._get(params=para)
+        js = self._get(params=para).json()
+        if __debug__:
+            self._log_json(js, 'journal_get')
         if js['result'] != '0':
             self.error = js['error']
             raise Exception(self.error)
@@ -199,16 +205,17 @@ class Diary_API:
         posts_cont = int(js['posts'])
         counter = from_
         while counter <= posts_cont:
-            for post_id, data in self.post_get(type_, juser_id,
-                                    shortname, from_=counter, src, ids):
-                comment_count = int(data['comments_count_data'])
+            for post_id, data in self.post_get(type_, juser_id=juser_id,
+                                    shortname=shortname, from_=counter, src=src, ids=ids):
+                comment_count = int(data.get('comments_count_data', 0))
                 c_c = 0
                 comments = []
-                while c_c < comment_count:
-                    for comment_id, comment_data in \
-                                self.comment_get(post_id, from_=c_c):
-                        c_c += 1
-                        comments.append(comment_data)
+                if comment_count != 0:
+                    while c_c <= comment_count:
+                        for comment_id, comment_data in \
+                                    self.comment_get(post_id, from_=c_c):
+                            c_c += 1
+                            comments.append(comment_data)
                 yield post_id, data, comments
                 counter += 1
 
@@ -299,14 +306,21 @@ class Diary_API:
 
     # APENDIX
     def find_post(self, pattern, type_='diary', juser_id=None, shortname=None):
+        post_list = []
+        comment_list = []
         for _, data, comments in self.post_and_comments(type_=type_, \
                                     juser_id=juser_id, shortname=shortname):
-            if pattern in data['message_html']:
-                print(data['postid'])
+            message_data = data.get('message_html', None) or data.get('message_src', None)
+            if message_data and pattern in message_data:
+                u = "http://{shortname}.diary.ru/p{postid}.htm".format(shortname=data['shortname'], postid=data['postid'])
+                post_list.append(u)
                 for c in comments:
-                    if pattern in c['message_html']:
-                        print(c['commentid'])
-
+                    comment_data = c.get('message_html', None) or c.get('message_src', None)
+                    if comment_data and pattern in c['message_html']:
+                        uu = u + '#' + c['commentid']
+                        comment_list.append(uu)
+        import itertools.chain
+        return [x for x in itertools.chain(post_list, comment_list)]
 
 
 if __name__ == '__main__':
