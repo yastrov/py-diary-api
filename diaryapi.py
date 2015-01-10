@@ -179,20 +179,38 @@ class Diary_API:
                     for comment_id, comment_data
                     in js['comments'].items())
 
+    def journal_get(self, userid=None, shortname=None, fields=None, unset=None):
+        para = {'method': 'journal.get',}
+        if userid: para['userid'] = userid
+        if shortname: para['shortname'] = shortname
+        if fields: para['fields'] = fields
+        if unset: para['unset'] = unset
+        js = self._get(params=para)
+        if js['result'] != '0':
+            self.error = js['error']
+            raise Exception(self.error)
+        else:
+            return js['journal']
+
     ## END COMMENT region
     def post_and_comments(self, type_='diary', juser_id=None,
                         shortname=None, from_=0, src=1, ids=None):
-        for post_id, data in self.post_get(type_, juser_id,
-                                shortname, from_, src, ids):
-            comment_count = int(data['comments_count_data'])
-            c_c = 0
-            comments = []
-            while c_c < comment_count:
-                for comment_id, comment_data in \
-                            self.comment_get(post_id, from_=c_c):
-                    c_c += 1
-                    comments.append(comment_data)
-            yield post_id, data, comments
+        js = self.journal_get(userid = juser_id, shortname=shortname)
+        posts_cont = int(js['posts'])
+        counter = from_
+        while counter <= posts_cont:
+            for post_id, data in self.post_get(type_, juser_id,
+                                    shortname, from_=counter, src, ids):
+                comment_count = int(data['comments_count_data'])
+                c_c = 0
+                comments = []
+                while c_c < comment_count:
+                    for comment_id, comment_data in \
+                                self.comment_get(post_id, from_=c_c):
+                        c_c += 1
+                        comments.append(comment_data)
+                yield post_id, data, comments
+                counter += 1
 
     ## UMAIL region
     def umail_get_folders(self):
@@ -278,6 +296,18 @@ class Diary_API:
         else:
             return True
     ## END UMAIL region
+
+    # APENDIX
+    def find_post(self, pattern, type_='diary', juser_id=None, shortname=None):
+        for _, data, comments in self.post_and_comments(type_=type_, \
+                                    juser_id=juser_id, shortname=shortname):
+            if pattern in data['message_html']:
+                print(data['postid'])
+                for c in comments:
+                    if pattern in c['message_html']:
+                        print(c['commentid'])
+
+
 
 if __name__ == '__main__':
     username = ''
