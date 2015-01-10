@@ -39,6 +39,8 @@ class Diary_API:
                                 'method': 'user.auth',
                                 'appkey': self._appkey,
                                 }
+        from urllib.parse import urlencode
+        print(urlencode(self.__auth_params))
         js = self.__session.get('http://www.diary.ru/api/',
                         params = self.__auth_params,
                         allow_redirects=False).json()
@@ -47,6 +49,7 @@ class Diary_API:
             return True
         else:
             self.error = js['error']
+            raise Exception(js['error'])
             return False
 
     def _auth_twice(self):
@@ -149,7 +152,7 @@ class Diary_API:
         else:
             if __debug__:
                 self._log_json(js, 'post_get')
-            if len(js.get('posts', {}).items()) == 0:
+            if len(js.get('posts')) == 0:
                 return (({},{}))
             return ((post_id, data)
                     for post_id, data
@@ -201,12 +204,15 @@ class Diary_API:
     ## END COMMENT region
     def post_and_comments(self, type_='diary', juser_id=None,
                         shortname=None, from_=0, src=1, ids=None):
-        js = self.journal_get(userid = juser_id, shortname=shortname)
+        js = self.journal_get(shortname=shortname)
         posts_cont = int(js['posts'])
         counter = from_
         while counter <= posts_cont:
             for post_id, data in self.post_get(type_, juser_id=juser_id,
                                     shortname=shortname, from_=counter, src=src, ids=ids):
+                if len(data.items()) == 0:
+                    print('Empty')
+                    break
                 comment_count = int(data.get('comments_count_data', 0))
                 c_c = 0
                 comments = []
@@ -308,19 +314,23 @@ class Diary_API:
     def find_post(self, pattern, type_='diary', juser_id=None, shortname=None):
         post_list = []
         comment_list = []
-        for _, data, comments in self.post_and_comments(type_=type_, \
-                                    juser_id=juser_id, shortname=shortname):
-            message_data = data.get('message_html', None) or data.get('message_src', None)
-            if message_data and pattern in message_data:
-                u = "http://{shortname}.diary.ru/p{postid}.htm".format(shortname=data['shortname'], postid=data['postid'])
-                post_list.append(u)
-                for c in comments:
-                    comment_data = c.get('message_html', None) or c.get('message_src', None)
-                    if comment_data and pattern in c['message_html']:
-                        uu = u + '#' + c['commentid']
-                        comment_list.append(uu)
-        import itertools.chain
-        return [x for x in itertools.chain(post_list, comment_list)]
+        try:
+            for _, data, comments in self.post_and_comments(type_=type_, \
+                                        juser_id=juser_id, shortname=shortname):
+                message_data = data.get('message_html', None) or data.get('message_src', None)
+                if message_data and pattern in message_data:
+                    u = "http://{shortname}.diary.ru/p{postid}.htm".format(shortname=data['shortname'], postid=data['postid'])
+                    post_list.append(u)
+                    for c in comments:
+                        comment_data = c.get('message_html', None) or c.get('message_src', None)
+                        if comment_data and pattern in c['message_html']:
+                            uu = u + '#' + c['commentid']
+                            comment_list.append(uu)
+        except Exception as e:
+            print(e)
+        import itertools
+        chain = itertools.chain
+        return [x for x in chain(post_list, comment_list)]
 
 
 if __name__ == '__main__':
